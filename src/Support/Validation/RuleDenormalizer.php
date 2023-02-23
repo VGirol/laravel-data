@@ -20,7 +20,32 @@ class RuleDenormalizer
     public function execute(mixed $rule, ValidationPath $path): array
     {
         if (is_string($rule)) {
-            return Str::contains($rule, 'regex:') ? [$rule] : explode('|', $rule);
+            if (Str::contains($rule, 'regex:')) {
+                return [$rule];
+            }
+
+            $oneField = ['different', 'exclude_with', 'exclude_without', 'gt', 'gte', 'lt', 'lte', 'same'];
+            $fieldWithValue = ['accepted_if', 'declined_if', 'exclude_if', 'exclude_unless', 'missing_if', 'missing_unless', 'prohibited_if', 'prohibited_unless', 'required_if', 'required_unless'];
+            $manyFields = ['missing_with', 'missing_with_all', 'prohibits', 'required_with', 'required_with_all', 'required_without', 'required_without_all'];
+
+            return collect(explode('|', $rule))
+                ->map(function (string $item) use ($path, $oneField, $fieldWithValue, $manyFields) {
+                    $arr = explode(':', $item);
+                    if (!isset($arr[1])) {
+                        return $item;
+                    }
+                    if (in_array($arr[0], array_merge($oneField, $fieldWithValue))) {
+                        $arr[1] = $this->addPath($path, $arr[1]);
+                    }
+                    if (in_array($arr[0], $manyFields)) {
+                        $tmp = explode(',', $arr[1]);
+                        $tmp = array_map(fn ($s) => $this->addPath($path, $s), $tmp);
+                        $arr[1] = implode(',', $tmp);
+                    }
+
+                    return implode(':', $arr);
+                })
+                ->all();
         }
 
         if (is_array($rule)) {
@@ -47,6 +72,13 @@ class RuleDenormalizer
         }
 
         return [$rule];
+    }
+
+    protected function addPath(ValidationPath $path, string $name): string
+    {
+        $prepend = $path->get();
+
+        return ($prepend === null | $prepend == '') ? $name : $prepend . '.' . $name;
     }
 
     protected function normalizeStringValidationAttribute(
